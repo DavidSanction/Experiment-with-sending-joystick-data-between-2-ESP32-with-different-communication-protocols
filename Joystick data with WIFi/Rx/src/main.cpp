@@ -1,38 +1,39 @@
 #include <WiFi.h>
-#include <WiFiClient.h>
+#include <WiFiServer.h>
 
 // Wi-Fi credentials
 const char* ssid = "WiFimodem-46A9";
 const char* password = "kjnhjdqgz2";
 
-// Receiver's IP and port
-const char* receiverIP = "192.168.0.113"; // Replace with the receiver's IP address
-const int receiverPort = 8080;
+// Server details
+const int serverPort = 8080;
 
-WiFiClient client;
+WiFiServer server(serverPort);
+
+// LED pins
+const int ledXPin = 16; // Adjust to your first LED pin
+const int ledYPin = 17; // Adjust to your second LED pin
 
 typedef struct {
     uint8_t brightnessX;
     uint8_t brightnessY;
 } DataPacket;
 
-DataPacket dataToSend;
-
-// Joystick and button pins
-const int xPin = 36; // Joystick X-axis
-const int yPin = 39; // Joystick Y-axis
-const int buttonPin = 21; // Button
-
-bool macAddressReceived = false;
-uint8_t receiverMAC[6];
+DataPacket receivedData;
 
 void setup() {
     Serial.begin(115200);
 
-    // Initialize joystick and button pins
-    pinMode(xPin, INPUT);
-    pinMode(yPin, INPUT);
-    pinMode(buttonPin, INPUT_PULLUP);
+    // Initialize LED pins
+    pinMode(ledXPin, OUTPUT);
+    pinMode(ledYPin, OUTPUT);
+
+    // Initialize PWM for LEDs
+    ledcSetup(0, 5000, 8); // Channel 0 for X LED
+    ledcAttachPin(ledXPin, 0);
+
+    ledcSetup(1, 5000, 8); // Channel 1 for Y LED
+    ledcAttachPin(ledYPin, 1);
 
     // Initialize Wi-Fi
     WiFi.begin(ssid, password);
@@ -48,47 +49,39 @@ void setup() {
     uint8_t mac[6];
     WiFi.macAddress(mac);
     Serial.printf("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    // Start the server
+    server.begin();
+    Serial.printf("Server started on port %d\n", serverPort);
 }
 
 void loop() {
-    // Connect to the receiver if not already connected
-    if (!client.connected()) {
-        Serial.println("Connecting to receiver...");
-        if (client.connect(receiverIP, receiverPort)) {
-            Serial.println("Connected to receiver.");
+    // Check for a new client connection
+    WiFiClient client = server.available();
+    if (client) {
+        Serial.println("Client connected");
 
-            // Wait for receiver to send its MAC address
-            while (client.available() < 6) {
-                delay(10);
+        // Send the receiver's MAC address to the client
+        uint8_t mac[6];
+        WiFi.macAddress(mac);
+        client.write(mac, 6);
+        Serial.println("MAC address sent to client.");
+
+        // Handle incoming data
+        while (client.connected()) {
+            if (client.available()) {
+                // Read incoming data into the DataPacket structure
+                int len = client.read((uint8_t*)&receivedData, sizeof(receivedData));
+                if (len == sizeof(receivedData)) {
+                    Serial.printf("Received X: %d, Y: %d\n", receivedData.brightnessX, receivedData.brightnessY);
+
+                    // Adjust LED brightness
+                    ledcWrite(0, receivedData.brightnessX); // Adjust X LED
+                    ledcWrite(1, receivedData.brightnessY); // Adjust Y LED
+                }
             }
-            client.read(receiverMAC, 6);
-            macAddressReceived = true;
-
-            Serial.printf("Receiver MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-                          receiverMAC[0], receiverMAC[1], receiverMAC[2], receiverMAC[3], receiverMAC[4], receiverMAC[5]);
-        } else {
-            Serial.println("Failed to connect, retrying...");
-            delay(1000);
-            return;
         }
+        client.stop();
+        Serial.println("Client disconnected");
     }
-
-    // Read joystick values and button state
-    int xValue = analogRead(xPin) / 4; // Map 0-1023 to 0-255
-    int yValue = analogRead(yPin) / 4; // Map 0-1023 to 0-255
-    bool buttonPressed = digitalRead(buttonPin) == LOW;
-
-    // Populate the data packet
-    dataToSend.brightnessX = xValue;
-    dataToSend.brightnessY = yValue;
-
-    // Send data to the receiver
-    if (client.connected()) {
-        client.write((uint8_t*)&dataToSend, sizeof(dataToSend));
-        Serial.printf("Sent X: %d, Y: %d, Button: %s\n", dataToSend.brightnessX, dataToSend.brightnessY, buttonPressed ? "Pressed" : "Released");
-    } else {
-        Serial.println("Disconnected, attempting to reconnect...");
-    }
-
-    delay(100); // Adjust transmission frequency as needed
 }

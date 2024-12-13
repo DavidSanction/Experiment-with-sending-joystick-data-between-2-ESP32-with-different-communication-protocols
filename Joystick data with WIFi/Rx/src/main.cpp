@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 
@@ -22,7 +21,10 @@ DataPacket dataToSend;
 // Joystick and button pins
 const int xPin = 36; // Joystick X-axis
 const int yPin = 39; // Joystick Y-axis
-const int buttonPin = 34; // Button
+const int buttonPin = 21; // Button
+
+bool macAddressReceived = false;
+uint8_t receiverMAC[6];
 
 void setup() {
     Serial.begin(115200);
@@ -41,6 +43,11 @@ void setup() {
     }
     Serial.println("\nConnected to Wi-Fi");
     Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
+
+    // Display MAC address
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    Serial.printf("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 void loop() {
@@ -49,6 +56,16 @@ void loop() {
         Serial.println("Connecting to receiver...");
         if (client.connect(receiverIP, receiverPort)) {
             Serial.println("Connected to receiver.");
+
+            // Wait for receiver to send its MAC address
+            while (client.available() < 6) {
+                delay(10);
+            }
+            client.read(receiverMAC, 6);
+            macAddressReceived = true;
+
+            Serial.printf("Receiver MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                          receiverMAC[0], receiverMAC[1], receiverMAC[2], receiverMAC[3], receiverMAC[4], receiverMAC[5]);
         } else {
             Serial.println("Failed to connect, retrying...");
             delay(1000);
